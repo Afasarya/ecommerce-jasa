@@ -25,28 +25,38 @@ class TransactionController extends BaseController
      */
     public function pay($id)
     {
-        $transaction = Transaction::with('order.user')
-            ->where('id', $id)
-            ->where('status', 'pending')
-            ->whereHas('order', function($q) {
-                $q->where('user_id', auth()->id());
-            })
-            ->firstOrFail();
-            
-        $order = $transaction->order;
-        
         try {
+            $transaction = Transaction::with('order.user', 'order.items')
+                ->where('id', $id)
+                ->where('status', 'pending')
+                ->whereHas('order', function($q) {
+                    $q->where('user_id', auth()->id());
+                })
+                ->firstOrFail();
+                
+            $order = $transaction->order;
+            
+            Log::info('Processing payment for transaction: ' . $transaction->transaction_id);
+            
             // Prepare transaction parameters for Midtrans
             $params = $this->midtransService->createTransactionParams($transaction, $order);
             
             // Create Snap Token
             $snapToken = $this->midtransService->createSnapToken($params);
+            Log::info('Successfully generated Snap token for transaction: ' . $transaction->id);
             
             return view('transactions.pay', compact('transaction', 'order', 'snapToken'));
         } catch (\Exception $e) {
-            report($e);
-            return redirect()->route('orders.show', $order->order_number)
-                ->with('error', 'Terjadi kesalahan saat memproses pembayaran. Silakan coba lagi nanti.');
+            Log::error('Payment processing error: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
+            if (isset($order)) {
+                return redirect()->route('orders.show', $order->order_number)
+                    ->with('error', 'Terjadi kesalahan saat memproses pembayaran: ' . $e->getMessage());
+            } else {
+                return redirect()->route('orders.index')
+                    ->with('error', 'Terjadi kesalahan saat memproses pembayaran: ' . $e->getMessage());
+            }
         }
     }
     
@@ -58,6 +68,9 @@ class TransactionController extends BaseController
         $transaction = Transaction::with('order')
             ->findOrFail($id);
             
+        // Log incoming data for debugging
+        Log::info('Transaction finish callback received', $request->all());
+        
         // If payment finishes with response from Midtrans
         if ($request->has('transaction_status')) {
             try {
@@ -96,17 +109,9 @@ class TransactionController extends BaseController
                 if ($transaction->status == 'success') {
                     return redirect()->route('orders.show', $transaction->order->order_number)
                         ->with('success', 'Pembayaran berhasil! Pesanan Anda sedang diproses.');
-                } else if ($transaction->status == 'pending') {
-                    return redirect()->route('orders.show', $transaction->order->order_number)
-                        ->with('info', 'Pembayaran Anda sedang diproses. Kami akan memberi tahu Anda jika sudah selesai.');
-                } else {
-                    return redirect()->route('orders.show', $transaction->order->order_number)
-                        ->with('error', 'Pembayaran gagal atau dibatalkan. Silakan coba lagi.');
                 }
             } catch (\Exception $e) {
-                report($e);
-                return redirect()->route('orders.show', $transaction->order->order_number)
-                    ->with('error', 'Terjadi kesalahan saat memproses pembayaran. Silakan coba lagi nanti.');
+                Log::error('Error processing transaction finish: ' . $e->getMessage());
             }
         }
         
@@ -132,7 +137,7 @@ class TransactionController extends BaseController
             $transaction = Transaction::where('transaction_id', $result['transaction_id'])->first();
             
             if (!$transaction) {
-                Log::warning('Transaction not found: ' . $result['transaction_id']);
+                Log::error('Transaction not found for notification: ' . $result['transaction_id']);
                 return response()->json(['message' => 'Transaction not found'], 404);
             }
             
@@ -166,7 +171,7 @@ class TransactionController extends BaseController
                 
             if ($transaction->status != 'pending') {
                 return redirect()->route('orders.show', $transaction->order->order_number)
-                    ->with('info', 'Status transaksi sudah diperbarui.');
+                    ->with('info', 'Status pembayaran sudah diperbarui sebelumnya.');
             }
             
             // Get transaction status from Midtrans
@@ -194,7 +199,7 @@ class TransactionController extends BaseController
                 ->with('info', $message);
         } catch (\Exception $e) {
             report($e);
-            return back()->with('error', 'Terjadi kesalahan saat memeriksa status transaksi.');
+            return back()->with('error', 'Terjadi kesalahan saat memeriksa status transaksi: ' . $e->getMessage());
         }
     }
 }

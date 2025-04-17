@@ -1,4 +1,4 @@
-x-app-layout>
+<x-app-layout>
     <x-slot name="title">Pembayaran</x-slot>
     
     <!-- Breadcrumbs -->
@@ -124,39 +124,51 @@ x-app-layout>
             const payButton = document.getElementById('pay-button');
             const snapToken = "{{ $snapToken }}";
             
+            console.log('Snap token:', snapToken);
+            
             payButton.addEventListener('click', function() {
                 // Show loading state
                 payButton.disabled = true;
                 payButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Memuat metode pembayaran...';
                 
-                snap.pay(snapToken, {
-                    onSuccess: function(result) {
-                        payButton.innerHTML = '<i class="fas fa-check mr-2"></i> Pembayaran Berhasil';
-                        
-                        // Redirect with payment data
-                        window.location.href = "{{ route('transaction.finish', $transaction->id) }}?" + new URLSearchParams(result);
-                    },
-                    onPending: function(result) {
-                        payButton.innerHTML = '<i class="fas fa-clock mr-2"></i> Pembayaran Tertunda';
-                        
-                        // Redirect with payment data
-                        window.location.href = "{{ route('transaction.finish', $transaction->id) }}?" + new URLSearchParams(result);
-                    },
-                    onError: function(result) {
-                        payButton.disabled = false;
-                        payButton.innerHTML = 'Pilih Metode Pembayaran';
-                        
-                        // Redirect with payment data
-                        window.location.href = "{{ route('transaction.finish', $transaction->id) }}?" + new URLSearchParams(result);
-                    },
-                    onClose: function() {
-                        // User closed the popup without finishing the payment
-                        payButton.disabled = false;
-                        payButton.innerHTML = 'Pilih Metode Pembayaran';
-                        
-                        console.log('Customer closed the payment window');
-                    }
-                });
+                try {
+                    snap.pay(snapToken, {
+                        onSuccess: function(result) {
+                            console.log('Payment success', result);
+                            payButton.innerHTML = '<i class="fas fa-check mr-2"></i> Pembayaran Berhasil';
+                            
+                            // Redirect with payment data
+                            window.location.href = "{{ route('transaction.finish', $transaction->id) }}?" + new URLSearchParams(result).toString();
+                        },
+                        onPending: function(result) {
+                            console.log('Payment pending', result);
+                            payButton.innerHTML = '<i class="fas fa-clock mr-2"></i> Pembayaran Tertunda';
+                            
+                            // Redirect with payment data
+                            window.location.href = "{{ route('transaction.finish', $transaction->id) }}?" + new URLSearchParams(result).toString();
+                        },
+                        onError: function(result) {
+                            console.error('Payment error', result);
+                            payButton.disabled = false;
+                            payButton.innerHTML = 'Pilih Metode Pembayaran';
+                            alert('Terjadi kesalahan saat memproses pembayaran. Silakan coba lagi.');
+                            
+                            // Redirect with payment data
+                            window.location.href = "{{ route('transaction.finish', $transaction->id) }}?" + new URLSearchParams(result).toString();
+                        },
+                        onClose: function() {
+                            // User closed the popup without finishing the payment
+                            console.log('Customer closed the payment window');
+                            payButton.disabled = false;
+                            payButton.innerHTML = 'Pilih Metode Pembayaran';
+                        }
+                    });
+                } catch (error) {
+                    console.error('Snap pay error:', error);
+                    payButton.disabled = false;
+                    payButton.innerHTML = 'Pilih Metode Pembayaran';
+                    alert('Terjadi kesalahan: ' + error.message);
+                }
             });
         });
     </script>
